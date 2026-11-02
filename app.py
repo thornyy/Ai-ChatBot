@@ -3,8 +3,6 @@ from flask import Flask, render_template, request, jsonify
 from groq import Groq
 from dotenv import load_dotenv
 import os
-import gradio as gr
-import threading
 
 load_dotenv()
 
@@ -19,44 +17,6 @@ if not api_key:
 client = Groq(api_key=api_key)
 
 
-# AI Chatbot Function
-def chatbot(message, history):
-    try:
-        messages = [
-            {
-                "role": "system",
-                "content": "You are a helpful and friendly AI assistant."
-            }
-        ]
-
-        for user, assistant in history:
-            messages.append({
-                "role": "user",
-                "content": user
-            })
-
-            messages.append({
-                "role": "assistant",
-                "content": assistant
-            })
-
-        messages.append({
-            "role": "user",
-            "content": message
-            })
-
-        response = client.chat.completions.create(
-            model="openai/gpt-oss-120b",
-            messages=messages,
-            temperature=0.7
-        )
-
-        return response.choices[0].message.content
-
-    except Exception as e:
-        return f"Error: {e}"
-
-
 # Flask Homepage
 @app.route("/")
 def home():
@@ -68,23 +28,46 @@ def home():
 def chat():
     try:
         data = request.get_json()
-        message = data.get("message", "").strip()
 
+        if not data:
+            return jsonify({"error": "Invalid request!"}), 400
+
+        message = data.get("message", "").strip()
+        history = data.get("history", [])
+
+        # Validate message
         if not message:
             return jsonify({"error": "Please enter a message!"}), 400
 
+        if len(message) > 500:
+            return jsonify({"error": "Message must be under 500 characters!"}), 400
+
+        # Prepare conversation history
+        messages = [
+            {
+                "role": "system",
+                "content": "You are a helpful and friendly AI assistant."
+            }
+        ]
+
+        # Add previous messages
+        for item in history:
+            if item.get("role") in ["user", "assistant"]:
+                messages.append({
+                    "role": item["role"],
+                    "content": item["content"]
+                })
+
+        # Add current message
+        messages.append({
+            "role": "user",
+            "content": message
+        })
+
+        # Get AI response
         response = client.chat.completions.create(
             model="openai/gpt-oss-120b",
-            messages=[
-                {
-                    "role": "system",
-                    "content": "You are a helpful and friendly AI assistant."
-                },
-                {
-                    "role": "user",
-                    "content": message
-                }
-            ],
+            messages=messages,
             temperature=0.7
         )
 
@@ -93,29 +76,10 @@ def chat():
         return jsonify({"response": answer})
 
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        print("Error:", e)
+        return jsonify({"error": "Something went wrong. Please try again."}), 500
 
 
-# Gradio Chat Interface
-demo = gr.ChatInterface(
-    fn=chatbot,
-    title="🤖 AI Chatbot",
-    description="Ask me anything!",
-    chatbot=gr.Chatbot(height=400)
-)
-
-
+# Run Flask Application
 if __name__ == "__main__":
-
-    # Start Gradio Server
-    threading.Thread(
-        target=lambda: demo.launch(
-            server_name="0.0.0.0",
-            server_port=7860,
-            share=False
-        ),
-        daemon=True
-    ).start()
-
-    # Start Flask Server
-    app.run(debug=False)
+    app.run(host="0.0.0.0", port=5000, debug=False)
